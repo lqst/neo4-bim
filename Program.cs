@@ -12,7 +12,7 @@ namespace neo4j.bim
     {
         static void Main(string[] args)
         {   
-            const string fileName = "AC20-FZK-Haus.ifc";
+            const string fileName = "input/flowchart.ifc";
             var editor = new XbimEditorCredentials
             {
                 ApplicationDevelopersName = "Developer Name",
@@ -27,7 +27,7 @@ namespace neo4j.bim
             Console.WriteLine("Loading: " + fileName);
 
             using (var model = IfcStore.Open(fileName, editor, null, null, XbimDBAccess.Read, -1))
-            using (var driver = new Neo4jDriver("neo4j://localhost", "neo4j", "test1234"))
+            using (var driver = new Neo4jDriver("neo4j://localhost:7687", "neo4j", "test1234"))
             {
             
                 var roots = model.Instances.OfType<IIfcRoot>();
@@ -56,7 +56,7 @@ namespace neo4j.bim
                         { "type", r.GetType().ToString() }, 
                         { "name", r.Name.ToString() },
                         { "description", r.Description.ToString() },
-                        { "entityLabel", r.EntityLabel }
+                        { "entityLabel", r.EntityLabel },
                         // LongName
                         // Height
                         // GrossFloorArea
@@ -92,24 +92,49 @@ namespace neo4j.bim
                 Console.WriteLine(string.Format("Number of spaces: {0}", spaces.Count()));
                 driver.writeObjects(spaces);
 
+
+                List<Node> fittings = model.Instances
+                .OfType<IIfcRoot>()
+                .OfType<IIfcFlowFitting>()
+                .Select(r => 
+                new Node(
+                    r.GlobalId.ToString(),
+                    new Dictionary<string, object>() {
+                        { "type", r.GetType().ToString() }, 
+                        { "name", r.Name.ToString() },
+                        { "description", r.Description.ToString() },
+                        { "entityLabel", r.EntityLabel },
+                        { "connectedFrom", r.ConnectedFrom.Select( c => c.GlobalId.ToString()).ToList() },
+                        { "connectedTo", r.ConnectedTo.Select( c => c.GlobalId.ToString()).ToList() }
+                        // LongName
+                        // Height
+                        // GrossFloorArea
+                        // GrossPerimeter
+                    }
+                    )
+                )
+                .ToList();
+                Console.WriteLine(string.Format("Number of flow fittings: {0}", fittings.Count()));
+                driver.writeObjects(fittings);
+
                 // ------------------------------------------------------------
                 // Not sure if properties should be retrieved like this
                 // ------------------------------------------------------------
-                // Dictionary<string, Node> propertyDict = model.Instances
-                // .OfType<IIfcRoot>()
-                // .OfType<IIfcPropertyDefinition>()
-                // .ToDictionary( r => r.GlobalId.ToString(), r => new Node(
-                //     r.GlobalId.ToString(),
-                //     new Dictionary<string, object>() {
-                //         { "type", r.GetType().ToString() }, 
-                //         { "name", r.Name.ToString() }, 
-                //         { "description", r.Description.ToString() },
-                //         { "entityLabel", r.EntityLabel }
-                //     }
-                //     )
-                // );
-                // Console.WriteLine(string.Format("Number of properties: {0}", propertyDict.Count()));
-                // driver.writeProperties(objectDict.Values.ToList());
+                Dictionary<string, Node> propertyDict = model.Instances
+                .OfType<IIfcRoot>()
+                .OfType<IIfcPropertySet>()
+                .ToDictionary( r => r.GlobalId.ToString(), r => new Node(
+                    r.GlobalId.ToString(),
+                    new Dictionary<string, object>() {
+                        { "type", r.GetType().ToString() }, 
+                        { "name", r.Name.ToString() }, 
+                        { "description", r.Description.ToString() },
+                        { "entityLabel", r.EntityLabel }
+                    }
+                    )
+                );
+                Console.WriteLine(string.Format("Number of properties: {0}", propertyDict.Count()));
+                driver.writeProperties(propertyDict.Values.ToList());
 
 
                 // ------------------------------------------------------------
@@ -165,7 +190,75 @@ namespace neo4j.bim
                     )
                 ).ToList();
                 Console.WriteLine(string.Format("Number of RelAggregates: {0}", relRelAggregates.Count()));
-                driver.writeRelAggegates(relRelAggregates);               
+                driver.writeRelAggregates(relRelAggregates);       
+
+                //IfcRelAssignsToGroup
+                List<Rel> relRelAssignsToGroup = model.Instances
+                .OfType<IIfcRoot>()
+                .OfType<IIfcRelAssignsToGroup>()
+                .SelectMany( r => r.RelatedObjects, (r, related) => new {r, related})
+                .Select( 
+                    pair => new Rel(
+                    pair.r.GlobalId.ToString(),
+                    pair.r.RelatingGroup.GlobalId,
+                    pair.related.GlobalId.ToString(),
+                    new Dictionary<string, object>() {
+                        { "type", pair.r.GetType().ToString() },
+                        { "name", pair.r.Name.ToString() },
+                        { "description", pair.r.Description.ToString() },
+                        { "entityLabel", pair.r.EntityLabel }
+                    }
+                    )
+                ).ToList();
+                Console.WriteLine(string.Format("Number of RelAssignsToGroup: {0}", relRelAssignsToGroup.Count()));
+                driver.writeRelAssignsToGroup(relRelAssignsToGroup);   
+
+                //IfcRelDefinesByProperties
+                /*List<Rel> relRelDefinesByProperties = model.Instances
+                .OfType<IIfcRoot>()
+                .OfType<IIfcRelDefinesByProperties>()
+                .SelectMany( r => r.RelatedObjects, (r, related) => new {r, related})
+                .Select( 
+                    pair => new Rel(
+                    pair.r.GlobalId.ToString(),
+                    pair.r.RelatingPropertyDefinition.PropertySetDefinitions[] .RelatingGroup.GlobalId,
+                    pair.related.GlobalId.ToString(),
+                    new Dictionary<string, object>() {
+                        { "type", pair.r.GetType().ToString() },
+                        { "name", pair.r.Name.ToString() },
+                        { "description", pair.r.Description.ToString() },
+                        { "entityLabel", pair.r.EntityLabel }
+                    }
+                    )
+                ).ToList();
+                Console.WriteLine(string.Format("Number of RelDefinesByProperties: {0}", relRelDefinesByProperties.Count()));
+                driver.writeRelDefinesByProperties(relRelDefinesByProperties); */
+
+                //IfcRelDefinesByType
+                List<Rel> relRelDefinesByType = model.Instances
+                .OfType<IIfcRoot>()
+                .OfType<IIfcRelDefinesByType>()
+                .SelectMany( r => r.RelatedObjects, (r, related) => new {r, related})
+                .Select( 
+                    pair => new Rel(
+                    pair.r.GlobalId.ToString(),
+                    pair.r.RelatingType.GlobalId,
+                    pair.related.GlobalId.ToString(),
+                    new Dictionary<string, object>() {
+                        { "type", pair.r.GetType().ToString() },
+                        { "name", pair.r.Name.ToString() },
+                        { "description", pair.r.Description.ToString() },
+                        { "entityLabel", pair.r.EntityLabel }
+                    }
+                    )
+                ).ToList();
+                Console.WriteLine(string.Format("Number of RelDefinesByType: {0}", relRelDefinesByType.Count()));
+                driver.writeRelDefinesByType(relRelDefinesByType);   
+
+
+
+                //IfcRelServicesBuildings
+
             }
 
         }
@@ -209,7 +302,7 @@ namespace neo4j.bim
                 try 
                 {
                     session.WriteTransaction( tx => 
-                        tx.Run("CREATE CONSTRAINT objectIndex ON (n:Object) ASSERT (n.id) IS NODE KEY")
+                        tx.Run("CREATE CONSTRAINT objectIndex IF NOT EXISTS FOR (n:Object) REQUIRE (n.id) IS NODE KEY")
                     );
                 } 
                 catch (Exception e)
@@ -219,7 +312,7 @@ namespace neo4j.bim
                 try 
                 {
                     session.WriteTransaction( tx => 
-                        tx.Run("CREATE CONSTRAINT propIndex ON (n:Prop) ASSERT (n.id) IS NODE KEY")
+                        tx.Run("CREATE CONSTRAINT propIndex IF NOT EXISTS FOR (n:Prop) REQUIRE (n.id) IS NODE KEY")
                     );
                 } 
                 catch (Exception e)
@@ -261,7 +354,7 @@ namespace neo4j.bim
            }            
         }
 
-        public void writeRelAggegates(List<Rel> rels)
+        public void writeRelAggregates(List<Rel> rels)
         {
            using (var session = Driver.Session()) {
                 session.WriteTransaction( tx => 
@@ -269,6 +362,21 @@ namespace neo4j.bim
                 );            
            }            
         }
-
+        public void writeRelAssignsToGroup(List<Rel> rels)
+        {
+           using (var session = Driver.Session()) {
+                session.WriteTransaction( tx => 
+                    tx.Run("UNWIND $rels as rel MATCH (from:Object{id: rel.from}), (to:Object{id: rel.to}) MERGE (from)-[r:ASSIGNS_TO_GROUP{id:rel.id}]->(to) set r += rel.properties", new {rels})
+                );            
+           }            
+        }
+        public void writeRelDefinesByType(List<Rel> rels)
+        {
+           using (var session = Driver.Session()) {
+                session.WriteTransaction( tx => 
+                    tx.Run("UNWIND $rels as rel MATCH (from:Object{id: rel.from}), (to:Object{id: rel.to}) MERGE (from)-[r:DEFINED_BY_TYPE{id:rel.id}]->(to) set r += rel.properties", new {rels})
+                );            
+           }            
+        }
     }
 }
